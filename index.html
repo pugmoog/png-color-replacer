@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Swap — Color Replacer</title>
+<style>
+  :root{
+    --bg: #16181c;
+    --panel: #1e2126;
+    --panel-2: #24282e;
+    --line: #33383f;
+    --text: #e8e9eb;
+    --text-dim: #8b929c;
+    --accent: #5ec9c2;
+    --accent-2: #e2b04a;
+    --danger: #d9695f;
+    --mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background: var(--bg); color: var(--text);
+    font-family: var(--sans);
+  }
+  body{
+    display:flex; flex-direction:column;
+  }
+  header{
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    display:flex; align-items:baseline; gap: 12px;
+    flex-shrink:0;
+  }
+  header h1{
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin:0;
+    color: var(--text);
+  }
+  header .tag{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .app{
+    display:flex;
+    flex: 1;
+    min-height:0;
+  }
+  /* ---------- LEFT: canvas stage ---------- */
+  .stage{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+    padding: 16px;
+    gap: 10px;
+  }
+  .stage-toolbar{
+    display:flex; align-items:center; gap:10px;
+    flex-wrap:wrap;
+  }
+  .btn{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing:0.03em;
+    text-transform: uppercase;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 3px;
+    cursor:pointer;
+    transition: border-color .12s, color .12s;
+    white-space:nowrap;
+  }
+  .btn:hover{ border-color: var(--accent); color: var(--accent); }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .btn:disabled:hover{ border-color:var(--line); color:var(--text); }
+  .btn.primary{ border-color: var(--accent); color: var(--accent); }
+  .btn.danger:hover{ border-color: var(--danger); color: var(--danger); }
+
+  .canvas-area{
+    flex:1;
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background:
+      linear-gradient(45deg, #26292f 25%, transparent 25%),
+      linear-gradient(-45deg, #26292f 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #26292f 75%),
+      linear-gradient(-45deg, transparent 75%, #26292f 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    background-color: #1a1c20;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    min-height: 300px;
+  }
+  .canvas-area.drag-over{
+    outline: 2px dashed var(--accent);
+    outline-offset: -6px;
+  }
+  #emptyState{
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align:center;
+    pointer-events:none;
+    padding: 20px;
+  }
+  #emptyState b{ color: var(--text); }
+  .canvas-wrap{
+    position:relative;
+    max-width:100%;
+    max-height:100%;
+    min-width:0;
+    min-height:0;
+    display:none;
+    line-height:0;
+  }
+  .canvas-wrap.show{ display:block; }
+  canvas{
+    display:block;
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated;
+    cursor: crosshair;
+  }
+  #processedCanvas{
+    position:absolute;
+    top:0; left:0;
+    width:100%; height:100%;
+    z-index: 2;
+  }
+  #originalCanvas{
+    position:relative;
+    z-index: 1;
+  }
+  .checker-backdrop{
+    position:absolute;
+    inset:0;
+    z-index: 0;
+    background-image:
+      linear-gradient(45deg, #454a52 25%, transparent 25%),
+      linear-gradient(-45deg, #454a52 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #454a52 75%),
+      linear-gradient(-45deg, transparent 75%, #454a52 75%);
+    background-size: 14px 14px;
+    background-position: 0 0, 0 7px, 7px -7px, -7px 0px;
+    background-color: #2c2f35;
+  }
+
+  .compare-row{
+    display:flex; align-items:center; gap:10px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  }
+  .compare-row input[type=range]{ flex:1; }
+
+  .readout{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display:flex; gap:16px; flex-wrap:wrap;
+    min-height: 16px;
+  }
+  .readout .swatch{
+    display:inline-block; width:12px; height:12px; border-radius:2px;
+    vertical-align:-2px; margin-right:5px; border:1px solid #444;
+  }
+
+  /* magnifier */
+  #magnifier{
+    position: fixed;
+    width: 130px; height: 130px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    box-shadow: 0 4px 18px rgba(0,0,0,.5);
+    pointer-events:none;
+    display:none;
+    overflow:hidden;
+    z-index: 50;
+    background: #000;
+  }
+  #magnifier canvas{ image-rendering: pixelated; }
+  #magnifier::after{
+    content:"";
+    position:absolute; top:50%; left:50%;
+    width:5px; height:5px; margin:-2.5px 0 0 -2.5px;
+    background: var(--accent);
+    border-radius:50%;
+  }
+
+  /* ---------- RIGHT: sidebar ---------- */
+  aside{
+    width: 360px;
+    flex-shrink:0;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    overflow-y:auto;
+    padding: 16px;
+    display:flex; flex-direction:column; gap: 16px;
+  }
+  section.card{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 12px;
+  }
+  section.card.active-slot{
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .card-title{
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:10px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .card-title .pick-badge{
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    opacity:0;
+  }
+  .active-slot .card-title .pick-badge{ opacity:1; }
+
+  .swatch-row{
+    display:flex; align-items:center; gap:10px; margin-bottom:10px;
+  }
+  .big-swatch{
+    width: 46px; height: 46px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background-image:
+      linear-gradient(45deg, #555 25%, transparent 25%),
+      linear-gradient(-45deg, #555 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #555 75%),
+      linear-gradient(-45deg, transparent 75%, #555 75%);
+    background-size: 10px 10px;
+    background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+    background-color: #333;
+    flex-shrink:0;
+    position:relative;
+    overflow:hidden;
+  }
+  .big-swatch i{
+    position:absolute; inset:0; display:block;
+  }
+  .hex-field{
+    flex:1;
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .hex-field label{ font-family: var(--mono); font-size:10px; color:var(--text-dim); }
+  .hex-field input{
+    font-family: var(--mono);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 7px 8px;
+    border-radius: 3px;
+    font-size: 13px;
+    width:100%;
+  }
+  .hex-field input:focus{ outline:none; border-color: var(--accent); }
+
+  .tabs{
+    display:flex; gap:4px; margin-bottom:8px;
+  }
+  .tab-btn{
+    font-family: var(--mono); font-size:10px; text-transform:uppercase;
+    background:transparent; border:1px solid var(--line); color:var(--text-dim);
+    padding: 4px 8px; border-radius:3px; cursor:pointer;
+  }
+  .tab-btn.active{ color: var(--accent); border-color: var(--accent); }
+  .channel-set{ display:none; flex-direction:column; gap:7px; }
+  .channel-set.show{ display:flex; }
+  .channel{
+    display:grid;
+    grid-template-columns: 16px 1fr 46px;
+    align-items:center;
+    gap:8px;
+  }
+  .channel label{ font-family: var(--mono); font-size:10px; color:var(--text-dim); }
+  .channel input[type=range]{ width:100%; }
+  .channel input[type=number]{
+    background: var(--bg); border:1px solid var(--line); color:var(--text);
+    border-radius:3px; font-family:var(--mono); font-size:11px; padding:3px 4px; width:100%;
+  }
+
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    height: 4px; border-radius: 2px;
+    background: var(--line);
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width: 14px; height:14px; border-radius:50%;
+    background: var(--accent);
+    cursor:pointer;
+    border: 2px solid #10141a;
+  }
+  input[type=range]::-moz-range-thumb{
+    width: 14px; height:14px; border-radius:50%;
+    background: var(--accent); border: 2px solid #10141a; cursor:pointer;
+  }
+
+  .field-row{
+    display:flex; align-items:center; justify-content:space-between;
+    gap: 10px; margin-top: 8px;
+  }
+  .field-row label{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); flex-shrink:0; }
+  .field-row .val{ font-family: var(--mono); font-size:11px; color: var(--accent); width:34px; text-align:right; }
+  .field-row input[type=range]{ flex:1; }
+
+  .checkline{
+    display:flex; align-items:center; gap:8px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    margin-top: 8px;
+  }
+  .checkline input{ accent-color: var(--accent); }
+
+  .rule-actions{
+    display:flex; gap:8px; margin-top:12px;
+  }
+  .rule-actions .btn{ flex:1; }
+
+  #rulesList{
+    display:flex; flex-direction:column; gap:6px;
+    max-height: 260px;
+    overflow-y:auto;
+  }
+  .rule-row{
+    display:flex; align-items:center; gap:8px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .rule-row.editing{ border-color: var(--accent-2); }
+  .rule-row .mini-swatch{
+    width:16px; height:16px; border-radius:3px; border:1px solid #444;
+    background-image:
+      linear-gradient(45deg, #555 25%, transparent 25%),
+      linear-gradient(-45deg, #555 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #555 75%),
+      linear-gradient(-45deg, transparent 75%, #555 75%);
+    background-size: 6px 6px;
+    background-position: 0 0, 0 3px, 3px -3px, -3px 0px;
+    flex-shrink:0;
+  }
+  .rule-row .arrow{ color: var(--text-dim); flex-shrink:0; }
+  .rule-row .meta{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rule-row .icon-btn{
+    background:none; border:none; color:var(--text-dim); cursor:pointer;
+    font-size: 12px; padding: 2px 4px;
+  }
+  .rule-row .icon-btn:hover{ color: var(--accent); }
+  .rule-row .icon-btn.danger:hover{ color: var(--danger); }
+  .rule-row input[type=checkbox]{ accent-color: var(--accent); flex-shrink:0; }
+  #noRulesMsg{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); text-align:center; padding: 10px 0; }
+
+  .history-row{ display:flex; gap:8px; }
+  .history-row .btn{ flex:1; }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background: var(--line); border-radius:4px; }
+  ::-webkit-scrollbar-track{ background: transparent; }
+
+  @media (max-width: 860px){
+    .app{ flex-direction:column; }
+    aside{ width:auto; border-left:none; border-top:1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pixel Swap</h1>
+  <span class="tag">rgba + hsva color replacement</span>
+</header>
+
+<div class="app">
+
+  <div class="stage">
+    <div class="stage-toolbar">
+      <button class="btn primary" id="uploadBtn">Upload PNG</button>
+      <input type="file" id="fileInput" accept="image/png,image/*" style="display:none">
+      <button class="btn" id="downloadBtn" disabled>Download Result</button>
+      <button class="btn" id="resetImgBtn" disabled>Clear Image</button>
+      <div class="history-row" style="margin-left:auto; width:140px;">
+        <button class="btn" id="undoBtn" disabled title="Undo rule change">&#8630; Undo</button>
+        <button class="btn" id="redoBtn" disabled title="Redo rule change">&#8631; Redo</button>
+      </div>
+    </div>
+
+    <div class="canvas-area" id="canvasArea">
+      <div id="emptyState">
+        <b>Drop a PNG here</b><br>or click "Upload PNG" above<br><br>
+        Then click any pixel to pick a color to replace.
+      </div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <div class="checker-backdrop"></div>
+        <canvas id="originalCanvas"></canvas>
+        <canvas id="processedCanvas"></canvas>
+      </div>
+    </div>
+
+    <div class="compare-row">
+      <span>ORIGINAL</span>
+      <input type="range" id="compareSlider" min="0" max="100" value="100">
+      <span>RESULT</span>
+    </div>
+
+    <div class="readout" id="readout">
+      <span>Hover image to inspect a pixel.</span>
+    </div>
+  </div>
+
+  <aside>
+
+    <section class="card active-slot" id="targetCard" data-slot="target">
+      <div class="card-title">
+        <span>1 &middot; Color to Replace</span>
+        <span class="pick-badge">picking</span>
+      </div>
+      <div class="swatch-row">
+        <div class="big-swatch"><i id="targetSwatch"></i></div>
+        <div class="hex-field">
+          <label>Hex (RRGGBBAA)</label>
+          <input type="text" id="targetHex" spellcheck="false">
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" data-mode="rgb" data-for="target">RGBA</button>
+        <button class="tab-btn" data-mode="hsv" data-for="target">HSVA</button>
+      </div>
+      <div class="channel-set show" id="target-rgb">
+        <div class="channel"><label>R</label><input type="range" min="0" max="255" id="target-r-range"><input type="number" min="0" max="255" id="target-r-num"></div>
+        <div class="channel"><label>G</label><input type="range" min="0" max="255" id="target-g-range"><input type="number" min="0" max="255" id="target-g-num"></div>
+        <div class="channel"><label>B</label><input type="range" min="0" max="255" id="target-b-range"><input type="number" min="0" max="255" id="target-b-num"></div>
+        <div class="channel"><label>A</label><input type="range" min="0" max="255" id="target-a-range"><input type="number" min="0" max="255" id="target-a-num"></div>
+      </div>
+      <div class="channel-set" id="target-hsv">
+        <div class="channel"><label>H</label><input type="range" min="0" max="360" id="target-h-range"><input type="number" min="0" max="360" id="target-h-num"></div>
+        <div class="channel"><label>S</label><input type="range" min="0" max="100" id="target-s-range"><input type="number" min="0" max="100" id="target-s-num"></div>
+        <div class="channel"><label>V</label><input type="range" min="0" max="100" id="target-v-range"><input type="number" min="0" max="100" id="target-v-num"></div>
+        <div class="channel"><label>A</label><input type="range" min="0" max="100" id="target-hsva-range"><input type="number" min="0" max="100" id="target-hsva-num"></div>
+      </div>
+    </section>
+
+    <section class="card" id="replacementCard" data-slot="replacement">
+      <div class="card-title">
+        <span>2 &middot; New Color</span>
+        <span class="pick-badge">picking</span>
+      </div>
+      <div class="swatch-row">
+        <div class="big-swatch"><i id="replacementSwatch"></i></div>
+        <div class="hex-field">
+          <label>Hex (RRGGBBAA)</label>
+          <input type="text" id="replacementHex" spellcheck="false">
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" data-mode="rgb" data-for="replacement">RGBA</button>
+        <button class="tab-btn" data-mode="hsv" data-for="replacement">HSVA</button>
+      </div>
+      <div class="channel-set show" id="replacement-rgb">
+        <div class="channel"><label>R</label><input type="range" min="0" max="255" id="replacement-r-range"><input type="number" min="0" max="255" id="replacement-r-num"></div>
+        <div class="channel"><label>G</label><input type="range" min="0" max="255" id="replacement-g-range"><input type="number" min="0" max="255" id="replacement-g-num"></div>
+        <div class="channel"><label>B</label><input type="range" min="0" max="255" id="replacement-b-range"><input type="number" min="0" max="255" id="replacement-b-num"></div>
+        <div class="channel"><label>A</label><input type="range" min="0" max="255" id="replacement-a-range"><input type="number" min="0" max="255" id="replacement-a-num"></div>
+      </div>
+      <div class="channel-set" id="replacement-hsv">
+        <div class="channel"><label>H</label><input type="range" min="0" max="360" id="replacement-h-range"><input type="number" min="0" max="360" id="replacement-h-num"></div>
+        <div class="channel"><label>S</label><input type="range" min="0" max="100" id="replacement-s-range"><input type="number" min="0" max="100" id="replacement-s-num"></div>
+        <div class="channel"><label>V</label><input type="range" min="0" max="100" id="replacement-v-range"><input type="number" min="0" max="100" id="replacement-v-num"></div>
+        <div class="channel"><label>A</label><input type="range" min="0" max="100" id="replacement-hsva-range"><input type="number" min="0" max="100" id="replacement-hsva-num"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title"><span>3 &middot; Match Settings</span></div>
+      <div class="field-row">
+        <label>Tolerance</label>
+        <input type="range" id="toleranceSlider" min="0" max="100" value="12">
+        <span class="val" id="toleranceVal">12</span>
+      </div>
+      <div class="checkline">
+        <input type="checkbox" id="matchAlphaChk">
+        <label for="matchAlphaChk">Include alpha channel in match</label>
+      </div>
+      <div class="checkline">
+        <input type="checkbox" id="featherChk" checked>
+        <label for="featherChk">Feather edges (smooth antialiased blend)</label>
+      </div>
+
+      <div class="rule-actions">
+        <button class="btn" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+        <button class="btn primary" id="addRuleBtn">+ Add Rule</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title"><span>4 &middot; Rules (applied in order)</span></div>
+      <div id="rulesList"></div>
+      <div id="noRulesMsg">No saved rules yet — the live preview above (target &rarr; new color) is being shown directly on the canvas.</div>
+    </section>
+
+  </aside>
+</div>
+
+<div id="magnifier"><canvas id="magCanvas" width="130" height="130"></canvas></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------
+  let originalCanvas = document.getElementById('originalCanvas');
+  let processedCanvas = document.getElementById('processedCanvas');
+  let originalCtx = originalCanvas.getContext('2d', {willReadFrequently:true});
+  let processedCtx = processedCanvas.getContext('2d', {willReadFrequently:true});
+  let originalImageData = null; // pristine, never mutated
+  let imgWidth = 0, imgHeight = 0;
+
+  let activeSlot = 'target'; // 'target' | 'replacement'
+  let editingRuleId = null;
+  let ruleIdCounter = 1;
+
+  let colors = {
+    target:      { r:255, g:255, b:255, a:255 },
+    replacement: { r:0,   g:0,   b:0,   a:255 }
+  };
+
+  let rules = []; // {id, target, replacement, tolerance, matchAlpha, feather, enabled}
+
+  let historyStack = [];
+  let historyIndex = -1; // points at current state within historyStack
+
+  // ---------------------------------------------------------------
+  // Color conversions
+  // ---------------------------------------------------------------
+  function rgbToHsv(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    const d = max-min;
+    let h = 0;
+    if (d !== 0){
+      if (max === r) h = 60 * (((g-b)/d) % 6);
+      else if (max === g) h = 60 * ((b-r)/d + 2);
+      else h = 60 * ((r-g)/d + 4);
+    }
+    if (h < 0) h += 360;
+    const s = max === 0 ? 0 : d/max;
+    const v = max;
+    return { h: h, s: s*100, v: v*100 };
+  }
+  function hsvToRgb(h,s,v){
+    s/=100; v/=100;
+    const c = v*s;
+    const x = c * (1 - Math.abs(((h/60) % 2) - 1));
+    const m = v - c;
+    let r=0,g=0,b=0;
+    if (h < 60){ r=c; g=x; b=0; }
+    else if (h < 120){ r=x; g=c; b=0; }
+    else if (h < 180){ r=0; g=c; b=x; }
+    else if (h < 240){ r=0; g=x; b=c; }
+    else if (h < 300){ r=x; g=0; b=c; }
+    else { r=c; g=0; b=x; }
+    return { r: Math.round((r+m)*255), g: Math.round((g+m)*255), b: Math.round((b+m)*255) };
+  }
+  function clamp(v,lo,hi){ return Math.min(hi, Math.max(lo, v)); }
+  function toHex2(n){ return clamp(Math.round(n),0,255).toString(16).padStart(2,'0'); }
+  function rgbaToHex(c){ return '#' + toHex2(c.r)+toHex2(c.g)+toHex2(c.b)+toHex2(c.a); }
+  function hexToRgba(hex){
+    hex = hex.trim().replace(/^#/,'');
+    if (hex.length === 3){ hex = hex.split('').map(ch=>ch+ch).join(''); }
+    if (hex.length === 6){ hex += 'ff'; }
+    if (hex.length !== 8) return null;
+    const r = parseInt(hex.slice(0,2),16);
+    const g = parseInt(hex.slice(2,4),16);
+    const b = parseInt(hex.slice(4,6),16);
+    const a = parseInt(hex.slice(6,8),16);
+    if ([r,g,b,a].some(n=>Number.isNaN(n))) return null;
+    return {r,g,b,a};
+  }
+
+  // ---------------------------------------------------------------
+  // UI wiring for a color slot (target / replacement)
+  // ---------------------------------------------------------------
+  function bindSlotUI(slot){
+    const hexInput = document.getElementById(slot+'Hex');
+    const swatch = document.getElementById(slot+'Swatch');
+    const card = document.getElementById(slot+'Card');
+
+    let updatingUI = false; // guard to prevent feedback loops
+
+    function refreshUI(){
+      updatingUI = true;
+      const c = colors[slot];
+      swatch.style.background = 'rgba('+c.r+','+c.g+','+c.b+','+(c.a/255).toFixed(3)+')';
+      hexInput.value = rgbaToHex(c);
+
+      // rgb fields
+      ['r','g','b'].forEach(ch=>{
+        document.getElementById(slot+'-'+ch+'-range').value = c[ch];
+        document.getElementById(slot+'-'+ch+'-num').value = c[ch];
+      });
+      document.getElementById(slot+'-a-range').value = c.a;
+      document.getElementById(slot+'-a-num').value = c.a;
+
+      // hsv fields
+      const hsv = rgbToHsv(c.r,c.g,c.b);
+      document.getElementById(slot+'-h-range').value = Math.round(hsv.h);
+      document.getElementById(slot+'-h-num').value = Math.round(hsv.h);
+      document.getElementById(slot+'-s-range').value = Math.round(hsv.s);
+      document.getElementById(slot+'-s-num').value = Math.round(hsv.s);
+      document.getElementById(slot+'-v-range').value = Math.round(hsv.v);
+      document.getElementById(slot+'-v-num').value = Math.round(hsv.v);
+      const aPct = Math.round(c.a/255*100);
+      document.getElementById(slot+'-hsva-range').value = aPct;
+      document.getElementById(slot+'-hsva-num').value = aPct;
+
+      updatingUI = false;
+    }
+
+    function setFromRgb(r,g,b,a){
+      colors[slot] = { r: clamp(r,0,255), g: clamp(g,0,255), b: clamp(b,0,255), a: clamp(a,0,255) };
+      refreshUI();
+      renderAll();
+    }
+    function setFromHsv(h,s,v,aPct){
+      const rgb = hsvToRgb(clamp(h,0,360), clamp(s,0,100), clamp(v,0,100));
+      colors[slot] = { r: rgb.r, g: rgb.g, b: rgb.b, a: Math.round(clamp(aPct,0,100)/100*255) };
+      refreshUI();
+      renderAll();
+    }
+
+    // hex input
+    hexInput.addEventListener('input', ()=>{
+      const parsed = hexToRgba(hexInput.value);
+      if (parsed){ colors[slot] = parsed; if(!updatingUI){ refreshUIPartial(); renderAll(); } }
+    });
+    function refreshUIPartial(){
+      // update everything except the hex field itself (keep caret/typing intact)
+      updatingUI = true;
+      const c = colors[slot];
+      swatch.style.background = 'rgba('+c.r+','+c.g+','+c.b+','+(c.a/255).toFixed(3)+')';
+      ['r','g','b'].forEach(ch=>{
+        document.getElementById(slot+'-'+ch+'-range').value = c[ch];
+        document.getElementById(slot+'-'+ch+'-num').value = c[ch];
+      });
+      document.getElementById(slot+'-a-range').value = c.a;
+      document.getElementById(slot+'-a-num').value = c.a;
+      const hsv = rgbToHsv(c.r,c.g,c.b);
+      document.getElementById(slot+'-h-range').value = Math.round(hsv.h);
+      document.getElementById(slot+'-h-num').value = Math.round(hsv.h);
+      document.getElementById(slot+'-s-range').value = Math.round(hsv.s);
+      document.getElementById(slot+'-s-num').value = Math.round(hsv.s);
+      document.getElementById(slot+'-v-range').value = Math.round(hsv.v);
+      document.getElementById(slot+'-v-num').value = Math.round(hsv.v);
+      const aPct = Math.round(c.a/255*100);
+      document.getElementById(slot+'-hsva-range').value = aPct;
+      document.getElementById(slot+'-hsva-num').value = aPct;
+      updatingUI = false;
+    }
+    hexInput.addEventListener('blur', refreshUI);
+    hexInput.addEventListener('focus', ()=> setActiveSlot(slot));
+
+    // rgb channels
+    ['r','g','b','a'].forEach(ch=>{
+      const rangeEl = document.getElementById(slot+'-'+ch+'-range');
+      const numEl = document.getElementById(slot+'-'+ch+'-num');
+      const handler = (val)=>{
+        const c = colors[slot];
+        const nc = {r:c.r,g:c.g,b:c.b,a:c.a};
+        nc[ch] = clamp(parseInt(val||0,10),0,255);
+        setFromRgb(nc.r,nc.g,nc.b,nc.a);
+      };
+      rangeEl.addEventListener('input', ()=> handler(rangeEl.value));
+      numEl.addEventListener('input', ()=> handler(numEl.value));
+      [rangeEl, numEl].forEach(el=> el.addEventListener('focus', ()=> setActiveSlot(slot)));
+    });
+
+    // hsv channels
+    ['h','s','v'].forEach(ch=>{
+      const rangeEl = document.getElementById(slot+'-'+ch+'-range');
+      const numEl = document.getElementById(slot+'-'+ch+'-num');
+      const handler = (val)=>{
+        const hsv = rgbToHsv(colors[slot].r, colors[slot].g, colors[slot].b);
+        const nh = {h:hsv.h, s:hsv.s, v:hsv.v};
+        const max = ch==='h' ? 360 : 100;
+        nh[ch] = clamp(parseFloat(val||0), 0, max);
+        const aPct = Math.round(colors[slot].a/255*100);
+        setFromHsv(nh.h, nh.s, nh.v, aPct);
+      };
+      rangeEl.addEventListener('input', ()=> handler(rangeEl.value));
+      numEl.addEventListener('input', ()=> handler(numEl.value));
+      [rangeEl, numEl].forEach(el=> el.addEventListener('focus', ()=> setActiveSlot(slot)));
+    });
+    const hsvaRange = document.getElementById(slot+'-hsva-range');
+    const hsvaNum = document.getElementById(slot+'-hsva-num');
+    const aHandler = (val)=>{
+      const hsv = rgbToHsv(colors[slot].r, colors[slot].g, colors[slot].b);
+      setFromHsv(hsv.h, hsv.s, hsv.v, clamp(parseFloat(val||0),0,100));
+    };
+    hsvaRange.addEventListener('input', ()=> aHandler(hsvaRange.value));
+    hsvaNum.addEventListener('input', ()=> aHandler(hsvaNum.value));
+    [hsvaRange, hsvaNum].forEach(el=> el.addEventListener('focus', ()=> setActiveSlot(slot)));
+
+    // tab switching (rgb/hsv view)
+    card.querySelectorAll('.tab-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        card.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        card.querySelector('#'+slot+'-rgb').classList.toggle('show', btn.dataset.mode==='rgb');
+        card.querySelector('#'+slot+'-hsv').classList.toggle('show', btn.dataset.mode==='hsv');
+      });
+    });
+
+    // clicking the card header (not inputs) also activates slot
+    card.addEventListener('click', (e)=>{
+      if (e.target.closest('input') || e.target.closest('.tab-btn')) return;
+      setActiveSlot(slot);
+    });
+
+    refreshUI();
+    slotRefreshers[slot] = refreshUI;
+  }
+  const slotRefreshers = {};
+
+  function setActiveSlot(slot){
+    activeSlot = slot;
+    document.getElementById('targetCard').classList.toggle('active-slot', slot==='target');
+    document.getElementById('replacementCard').classList.toggle('active-slot', slot==='replacement');
+  }
+
+  bindSlotUI('target');
+  bindSlotUI('replacement');
+  setActiveSlot('target');
+
+  // ---------------------------------------------------------------
+  // Image loading
+  // ---------------------------------------------------------------
+  const fileInput = document.getElementById('fileInput');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const canvasArea = document.getElementById('canvasArea');
+  const canvasWrap = document.getElementById('canvasWrap');
+  const emptyState = document.getElementById('emptyState');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const resetImgBtn = document.getElementById('resetImgBtn');
+
+  uploadBtn.addEventListener('click', ()=> fileInput.click());
+  fileInput.addEventListener('change', (e)=>{
+    if (e.target.files && e.target.files[0]) loadImageFile(e.target.files[0]);
+  });
+
+  ['dragenter','dragover'].forEach(evt=>{
+    canvasArea.addEventListener(evt, (e)=>{ e.preventDefault(); canvasArea.classList.add('drag-over'); });
+  });
+  ['dragleave','drop'].forEach(evt=>{
+    canvasArea.addEventListener(evt, (e)=>{ e.preventDefault(); canvasArea.classList.remove('drag-over'); });
+  });
+  canvasArea.addEventListener('drop', (e)=>{
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadImageFile(file);
+  });
+
+  function loadImageFile(file){
+    if (!file.type.startsWith('image/')){ alert('Please drop an image file.'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        imgWidth = img.naturalWidth;
+        imgHeight = img.naturalHeight;
+        originalCanvas.width = imgWidth; originalCanvas.height = imgHeight;
+        processedCanvas.width = imgWidth; processedCanvas.height = imgHeight;
+        originalCtx.clearRect(0,0,imgWidth,imgHeight);
+        originalCtx.drawImage(img,0,0);
+        originalImageData = originalCtx.getImageData(0,0,imgWidth,imgHeight);
+        emptyState.style.display = 'none';
+        canvasWrap.classList.add('show');
+        downloadBtn.disabled = false;
+        resetImgBtn.disabled = false;
+        renderAll();
+      };
+      img.onerror = ()=> alert('Could not load that file as an image.');
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  resetImgBtn.addEventListener('click', ()=>{
+    originalImageData = null;
+    imgWidth = 0; imgHeight = 0;
+    canvasWrap.classList.remove('show');
+    emptyState.style.display = '';
+    downloadBtn.disabled = true;
+    resetImgBtn.disabled = true;
+    updateReadout(null);
+  });
+
+  downloadBtn.addEventListener('click', ()=>{
+    processedCanvas.toBlob((blob)=>{
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'color-replaced.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  });
+
+  // ---------------------------------------------------------------
+  // Pixel picking + magnifier + live readout
+  // ---------------------------------------------------------------
+  const magnifier = document.getElementById('magnifier');
+  const magCanvas = document.getElementById('magCanvas');
+  const magCtx = magCanvas.getContext('2d');
+  magCtx.imageSmoothingEnabled = false;
+  const readout = document.getElementById('readout');
+
+  function getCanvasPixelCoords(e, canvasEl){
+    const rect = canvasEl.getBoundingClientRect();
+    const scaleX = canvasEl.width / rect.width;
+    const scaleY = canvasEl.height / rect.height;
+    const x = Math.floor((e.clientX - rect.left) * scaleX);
+    const y = Math.floor((e.clientY - rect.top) * scaleY);
+    return { x: clamp(x,0,canvasEl.width-1), y: clamp(y,0,canvasEl.height-1) };
+  }
+
+  function pixelAt(x,y){
+    const idx = (y*imgWidth + x) * 4;
+    const d = originalImageData.data;
+    return { r:d[idx], g:d[idx+1], b:d[idx+2], a:d[idx+3] };
+  }
+
+  function updateReadout(c){
+    if (!c){ readout.innerHTML = '<span>Hover image to inspect a pixel.</span>'; return; }
+    const hex = rgbaToHex(c);
+    const hsv = rgbToHsv(c.r,c.g,c.b);
+    readout.innerHTML =
+      '<span><span class="swatch" style="background:rgba('+c.r+','+c.g+','+c.b+','+(c.a/255).toFixed(2)+')"></span>'+hex+'</span>'+
+      '<span>rgba('+c.r+', '+c.g+', '+c.b+', '+(c.a/255).toFixed(2)+')</span>'+
+      '<span>hsva('+Math.round(hsv.h)+'&deg;, '+Math.round(hsv.s)+'%, '+Math.round(hsv.v)+'%, '+Math.round(c.a/255*100)+'%)</span>';
+  }
+
+  // Listeners live on the wrapper (not processedCanvas) so picking still works
+  // over the region revealed by the before/after compare slider, since
+  // clip-path on processedCanvas also clips its hit-testing area.
+  canvasWrap.addEventListener('mousemove', (e)=>{
+    if (!originalImageData) return;
+    const {x,y} = getCanvasPixelCoords(e, originalCanvas);
+    const c = pixelAt(x,y);
+    updateReadout(c);
+
+    // magnifier
+    magnifier.style.display = 'block';
+    magnifier.style.left = (e.clientX - 65) + 'px';
+    magnifier.style.top = (e.clientY - 65) + 'px';
+    const zoom = 8;
+    const srcSize = Math.round(130/zoom);
+    const sx = clamp(x - Math.floor(srcSize/2), 0, Math.max(imgWidth - srcSize,0));
+    const sy = clamp(y - Math.floor(srcSize/2), 0, Math.max(imgHeight - srcSize,0));
+    magCtx.clearRect(0,0,130,130);
+    magCtx.drawImage(originalCanvas, sx, sy, srcSize, srcSize, 0, 0, 130, 130);
+    // crosshair box around the exact pixel
+    const relX = (x - sx) * zoom;
+    const relY = (y - sy) * zoom;
+    magCtx.strokeStyle = 'rgba(255,255,255,0.85)';
+    magCtx.lineWidth = 1;
+    magCtx.strokeRect(relX+0.5, relY+0.5, zoom-1, zoom-1);
+  });
+  canvasWrap.addEventListener('mouseleave', ()=>{
+    magnifier.style.display = 'none';
+  });
+  canvasWrap.addEventListener('click', (e)=>{
+    if (!originalImageData) return;
+    const {x,y} = getCanvasPixelCoords(e, originalCanvas);
+    const c = pixelAt(x,y);
+    colors[activeSlot] = c;
+    slotRefreshers[activeSlot]();
+    renderAll();
+  });
+
+  // ---------------------------------------------------------------
+  // Compare slider (before/after)
+  // ---------------------------------------------------------------
+  const compareSlider = document.getElementById('compareSlider');
+  function applyCompareClip(){
+    const pct = compareSlider.value; // 100 = fully show result, 0 = fully show original
+    // Processed (result) is visible on the left, from 0 to pct% of the width.
+    processedCanvas.style.clipPath = 'inset(0 ' + (100-pct) + '% 0 0)';
+    // Original must be clipped to exactly the complementary region (pct% to 100%),
+    // otherwise it sits underneath the result layer and bleeds through any
+    // transparent/semi-transparent result pixels instead of showing the checkerboard.
+    originalCanvas.style.clipPath = 'inset(0 0 0 ' + pct + '%)';
+  }
+  compareSlider.addEventListener('input', applyCompareClip);
+  applyCompareClip();
+
+  // ---------------------------------------------------------------
+  // Tolerance / feather / matchAlpha controls
+  // ---------------------------------------------------------------
+  const toleranceSlider = document.getElementById('toleranceSlider');
+  const toleranceVal = document.getElementById('toleranceVal');
+  const matchAlphaChk = document.getElementById('matchAlphaChk');
+  const featherChk = document.getElementById('featherChk');
+
+  toleranceSlider.addEventListener('input', ()=>{
+    toleranceVal.textContent = toleranceSlider.value;
+    renderAll();
+  });
+  matchAlphaChk.addEventListener('change', renderAll);
+  featherChk.addEventListener('change', renderAll);
+
+  // ---------------------------------------------------------------
+  // Rules: build / add / edit / delete / list
+  // ---------------------------------------------------------------
+  const addRuleBtn = document.getElementById('addRuleBtn');
+  const cancelEditBtn = document.getElementById('cancelEditBtn');
+  const rulesListEl = document.getElementById('rulesList');
+  const noRulesMsg = document.getElementById('noRulesMsg');
+
+  function buildDraftRule(id){
+    return {
+      id: id,
+      target: {...colors.target},
+      replacement: {...colors.replacement},
+      tolerance: parseInt(toleranceSlider.value,10),
+      matchAlpha: matchAlphaChk.checked,
+      feather: featherChk.checked,
+      enabled: true
+    };
+  }
+
+  function pushHistory(){
+    // truncate redo branch
+    historyStack = historyStack.slice(0, historyIndex+1);
+    historyStack.push(JSON.stringify(rules));
+    historyIndex = historyStack.length - 1;
+    updateHistoryButtons();
+  }
+  function updateHistoryButtons(){
+    document.getElementById('undoBtn').disabled = historyIndex <= 0;
+    document.getElementById('redoBtn').disabled = historyIndex >= historyStack.length - 1;
+  }
+  document.getElementById('undoBtn').addEventListener('click', ()=>{
+    if (historyIndex <= 0) return;
+    historyIndex--;
+    rules = JSON.parse(historyStack[historyIndex]);
+    editingRuleId = null;
+    renderRulesList();
+    updateHistoryButtons();
+    renderAll();
+  });
+  document.getElementById('redoBtn').addEventListener('click', ()=>{
+    if (historyIndex >= historyStack.length-1) return;
+    historyIndex++;
+    rules = JSON.parse(historyStack[historyIndex]);
+    editingRuleId = null;
+    renderRulesList();
+    updateHistoryButtons();
+    renderAll();
+  });
+
+  addRuleBtn.addEventListener('click', ()=>{
+    if (editingRuleId){
+      const idx = rules.findIndex(r=>r.id===editingRuleId);
+      if (idx>-1) rules[idx] = buildDraftRule(editingRuleId);
+      editingRuleId = null;
+      addRuleBtn.textContent = '+ Add Rule';
+      cancelEditBtn.style.display = 'none';
+    } else {
+      rules.push(buildDraftRule(ruleIdCounter++));
+      // reset draft to a neutral no-op so it doesn't double-apply the same swap
+      colors.replacement = {...colors.target};
+      slotRefreshers.replacement();
+    }
+    pushHistory();
+    renderRulesList();
+    renderAll();
+  });
+
+  cancelEditBtn.addEventListener('click', ()=>{
+    editingRuleId = null;
+    addRuleBtn.textContent = '+ Add Rule';
+    cancelEditBtn.style.display = 'none';
+    renderRulesList();
+  });
+
+  function renderRulesList(){
+    rulesListEl.innerHTML = '';
+    noRulesMsg.style.display = rules.length ? 'none' : '';
+    rules.forEach(rule=>{
+      const row = document.createElement('div');
+      row.className = 'rule-row' + (rule.id===editingRuleId ? ' editing' : '');
+      const tSw = document.createElement('div');
+      tSw.className = 'mini-swatch';
+      tSw.style.background = 'rgba('+rule.target.r+','+rule.target.g+','+rule.target.b+','+(rule.target.a/255).toFixed(2)+')';
+      const rSw = document.createElement('div');
+      rSw.className = 'mini-swatch';
+      rSw.style.background = 'rgba('+rule.replacement.r+','+rule.replacement.g+','+rule.replacement.b+','+(rule.replacement.a/255).toFixed(2)+')';
+      const arrow = document.createElement('span');
+      arrow.className = 'arrow'; arrow.textContent = '\u2192';
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = 'tol ' + rule.tolerance + (rule.feather ? ' \u00b7 feather' : '') + (rule.matchAlpha ? ' \u00b7 +a' : '');
+      const enableChk = document.createElement('input');
+      enableChk.type = 'checkbox'; enableChk.checked = rule.enabled;
+      enableChk.addEventListener('change', ()=>{ rule.enabled = enableChk.checked; pushHistory(); renderAll(); });
+      const editBtn = document.createElement('button');
+      editBtn.className = 'icon-btn'; editBtn.title='Edit'; editBtn.textContent = '\u270e';
+      editBtn.addEventListener('click', ()=>{
+        colors.target = {...rule.target};
+        colors.replacement = {...rule.replacement};
+        toleranceSlider.value = rule.tolerance;
+        toleranceVal.textContent = rule.tolerance;
+        matchAlphaChk.checked = rule.matchAlpha;
+        featherChk.checked = rule.feather;
+        slotRefreshers.target(); slotRefreshers.replacement();
+        editingRuleId = rule.id;
+        addRuleBtn.textContent = 'Update Rule';
+        cancelEditBtn.style.display = '';
+        renderRulesList();
+        renderAll();
+      });
+      const delBtn = document.createElement('button');
+      delBtn.className = 'icon-btn danger'; delBtn.title='Delete'; delBtn.textContent = '\u2715';
+      delBtn.addEventListener('click', ()=>{
+        rules = rules.filter(r=>r.id!==rule.id);
+        if (editingRuleId === rule.id){ editingRuleId = null; addRuleBtn.textContent='+ Add Rule'; cancelEditBtn.style.display='none'; }
+        pushHistory();
+        renderRulesList();
+        renderAll();
+      });
+      row.appendChild(enableChk);
+      row.appendChild(tSw); row.appendChild(arrow); row.appendChild(rSw);
+      row.appendChild(meta);
+      row.appendChild(editBtn); row.appendChild(delBtn);
+      rulesListEl.appendChild(row);
+    });
+  }
+  pushHistory(); // initial empty-state snapshot
+  renderRulesList();
+
+  // ---------------------------------------------------------------
+  // Core rendering: apply all effective rules to the pristine image
+  // ---------------------------------------------------------------
+  function colorDistancePct(c1, c2, matchAlpha){
+    const dr = c1.r-c2.r, dg = c1.g-c2.g, db = c1.b-c2.b;
+    let sumSq = dr*dr + dg*dg + db*db;
+    let norm = 3*255*255;
+    if (matchAlpha){
+      const da = c1.a-c2.a;
+      sumSq += da*da;
+      norm += 255*255;
+    }
+    return Math.sqrt(sumSq/norm) * 100;
+  }
+
+  function getEffectiveRules(){
+    const draft = buildDraftRule('__draft__');
+    let list = rules.slice();
+    if (editingRuleId){
+      list = list.map(r => r.id === editingRuleId ? draft : r);
+    } else {
+      list = list.concat([draft]);
+    }
+    return list.filter(r=>r.enabled);
+  }
+
+  let renderScheduled = false;
+  function renderAll(){
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(()=>{
+      renderScheduled = false;
+      doRender();
+    });
+  }
+
+  function doRender(){
+    if (!originalImageData){ return; }
+    const effRules = getEffectiveRules();
+    const src = originalImageData.data;
+    const out = new Uint8ClampedArray(src); // start as a copy of the original
+    const len = src.length;
+
+    for (let i=0; i<len; i+=4){
+      const px = { r:src[i], g:src[i+1], b:src[i+2], a:src[i+3] };
+      let cur = px;
+      for (const rule of effRules){
+        const dist = colorDistancePct(cur, rule.target, rule.matchAlpha);
+        if (dist > rule.tolerance) continue;
+        if (rule.feather){
+          const featherWidth = Math.max(rule.tolerance * 0.35, 0.01);
+          const innerEdge = Math.max(rule.tolerance - featherWidth, 0);
+          let blend = 1;
+          if (dist > innerEdge){
+            blend = 1 - ((dist - innerEdge) / (rule.tolerance - innerEdge || 1));
+          }
+          cur = {
+            r: cur.r + (rule.replacement.r - cur.r) * blend,
+            g: cur.g + (rule.replacement.g - cur.g) * blend,
+            b: cur.b + (rule.replacement.b - cur.b) * blend,
+            a: cur.a + (rule.replacement.a - cur.a) * blend
+          };
+        } else {
+          cur = {...rule.replacement};
+        }
+      }
+      out[i]   = cur.r;
+      out[i+1] = cur.g;
+      out[i+2] = cur.b;
+      out[i+3] = cur.a;
+    }
+
+    const resultData = new ImageData(out, imgWidth, imgHeight);
+    processedCtx.putImageData(resultData, 0, 0);
+  }
+
+})();
+</script>
+</body>
+</html>
