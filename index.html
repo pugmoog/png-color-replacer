@@ -537,8 +537,15 @@
   // ---------------------------------------------------------------
   let originalCanvas = document.getElementById('originalCanvas');
   let processedCanvas = document.getElementById('processedCanvas');
-  let originalCtx = originalCanvas.getContext('2d', {willReadFrequently:true});
-  let processedCtx = processedCanvas.getContext('2d', {willReadFrequently:true});
+  let originalCtx = originalCanvas.getContext("2d", {
+    alpha: true,
+    willReadFrequently: true
+});
+
+let processedCtx = processedCanvas.getContext("2d", {
+    alpha: true,
+    willReadFrequently: true
+});
   let originalImageData = null; // pristine, never mutated
   let imgWidth = 0, imgHeight = 0;
 
@@ -822,13 +829,33 @@
   });
 
   downloadBtn.addEventListener('click', ()=>{
-    processedCanvas.toBlob((blob)=>{
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'color-replaced.png';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 'image/png');
+    downloadBtn.addEventListener("click", () => {
+
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = processedCanvas.width;
+    exportCanvas.height = processedCanvas.height;
+
+    const exportCtx = exportCanvas.getContext("2d", {
+        alpha: true
+    });
+
+    exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+    exportCtx.drawImage(processedCanvas, 0, 0);
+
+    exportCanvas.toBlob(blob => {
+
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "color-replaced.png";
+        a.click();
+
+        URL.revokeObjectURL(url);
+
+    }, "image/png");
+
+});
   });
 
   // ---------------------------------------------------------------
@@ -1137,6 +1164,7 @@
     }
 
     const resultData = new ImageData(out, imgWidth, imgHeight);
+    processedCtx.clearRect(0, 0, imgWidth, imgHeight);
     processedCtx.putImageData(resultData, 0, 0);
   }
 
